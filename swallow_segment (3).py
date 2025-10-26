@@ -3,6 +3,11 @@ import h5py
 import os
 import numpy as np
 
+# The code reads labelled swallowing event sample indices from an HDF5 file for
+# each participant
+# Extracts and saves individual swallowing audio clips from the participant's full audio file
+# Extracts and saves the reamining non-swallowing audio as one file
+# Organises output files by participant and segment type for further analysis
 
 # folder containing the wav file
 input_folder = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/mono_audio"
