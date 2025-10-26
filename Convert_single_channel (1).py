@@ -2,6 +2,11 @@ import os
 import librosa
 import soundfile as sf
 
+# The scripts automates batch conversion of stereo or multi-channel WAV files into
+# mono WAV fles, organising the output with meaningful filenames and handling multiple
+# files per participant folder. It helps standardise audio data for further processing or analysis,
+# especially when the mono audio is required.
+
 def convert_to_single_channel_librosa(input_file, output_file):
     audio, sr = librosa.load(input_file, sr=None, mono=True)
     sf.write(output_file, audio, sr)
@@ -35,3 +40,4 @@ input_directory = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniver
 output_directory = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/mono_audio"
 
 convert_all_audio_in_directory(input_directory, output_directory)
+
