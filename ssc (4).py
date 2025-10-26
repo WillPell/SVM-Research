@@ -2,47 +2,92 @@ import scipy.io.wavfile as wav
 from python_speech_features import ssc
 import os
 import numpy as np
+import pandas as pd
+import re
 
-# The code extracts spectral features (SSC) from each audio file in a directory
-# Aggregates these features by computing their mean and standard deviation across time frames
-# Prints out information about feature dimensions and processing status per file
-# Handles non-Wave files and erorrs
-
-# The folder which contains the audio file (swallowing segment)
 input_folder = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/swallowing_segments"
+labelling_csv = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/Swallowing1.csv"
 
-# 
+labels_df = pd.read_csv(labelling_csv)
+labels_df.columns = labels_df.columns.str.strip()
+
 def aggregation_calculations(output):
-    mean = np.mean(output, axis = 0)
-    std = np.std(output, axis = 0)
+    mean = np.mean(output, axis=0)
+    std = np.std(output, axis=0)
     return np.concatenate([mean, std])
 
-# going through each wav file in the folder
-for file in os.listdir(input_folder):
+def sort_key(filename):
+    match = re.match(r"P(\d+)_(\d+)\.wav", filename)
+    if match:
+        return (int(match.group(1)), int(match.group(2)))
+    else:
+        return (float('inf'), float('inf'))
 
-    # if it is not a wav file, skip the file
-    if not file.lower().endswith('.wav'):
-        print(f"Skipping non-wav file: {file}")
-        continue  # Skip non-wav files
+# Preprocess aspirating column to dict: participant -> set of swallowing numbers
+aspirating_dict = {}
+for idx, row in labels_df.iterrows():
+    participant = str(row['Participant']).strip()  # Convert to string and strip spaces
+    aspirating_value = row['Aspirating']
+
+    # Handle NaN or non-string values safely
+    if isinstance(aspirating_value, str):
+        aspirating_str = aspirating_value.strip()
+    elif pd.isna(aspirating_value):
+        aspirating_str = ""
+    else:
+        aspirating_str = str(aspirating_value).strip()
+
+    if aspirating_str:
+        aspirating_numbers = set(int(x.strip()) for x in aspirating_str.split(','))
+    else:
+        aspirating_numbers = set()
+
+    aspirating_dict[participant] = aspirating_numbers
+
+wav_files = [f for f in os.listdir(input_folder) if f.lower().endswith('.wav')]
+sorted_files = sorted(wav_files, key=sort_key)
+
+features_list = []
+labels_list = []
+
+for file in sorted_files:
+    match = re.match(r"P(\d+)_(\d+)\.wav", file)
+    if not match:
+        print(f"Filename {file} does not match expected pattern, skipping.")
+        continue
+
+    participant_id = f"P{int(match.group(1))}"
+    swallow_num = int(match.group(2))
+
+    label_set = aspirating_dict.get(participant_id, set())
+    label = 1 if swallow_num in label_set else 0
 
     try:
         fs, audio = wav.read(os.path.join(input_folder, file))
-
-        # if there is audio in that file
-        if len(audio) > 0:
-            output = ssc(audio, samplerate=fs, winlen=0.025, winstep=0.0125, nfilt=26, nfft=2048, lowfreq=0, highfreq=fs/2)
-
-            agg_features = aggregation_calculations(output)
-            
-            # print(output)
-            print(f"{file}: SSC feature frames = {output.shape[0]}")
-            print(f"{file}: SSC features per frame = {output.shape[1]}")
-            print(len(agg_features))
-        else:
+        if audio.ndim > 1:
+            audio = audio[:, 0]
+        if len(audio) == 0:
             print(f"{file} does not have audio")
+            continue
 
-    except ValueError as ve:
-        print(f"ValueError reading {file}: {ve}")
+        output = ssc(audio, samplerate=fs, winlen=0.025, winstep=0.0125,
+                     nfilt=26, nfft=2048, lowfreq=0, highfreq=fs/2)
+        agg_features = aggregation_calculations(output)
+
+        print(f"Processed {file} - Participant: {participant_id}, Swallow #: {swallow_num}, Label: {label}")
+
+        # Collect features and labels for later use
+        features_list.append(agg_features)
+        labels_list.append(label)
+
+        
+        
+
     except Exception as e:
         print(f"Error processing {file}: {e}")
 
+# Convert lists to numpy arrays for ML
+X = np.array(features_list)
+y = np.array(labels_list)
+
+print(f"Extracted features and labels for {len(X)} audio files.")
