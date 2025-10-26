@@ -3,14 +3,19 @@ from python_speech_features import ssc
 import os
 import numpy as np
 
+# The code extracts spectral features (SSC) from each audio file in a directory
+# Aggregates these features by computing their mean and standard deviation across time frames
+# Prints out information about feature dimensions and processing status per file
+# Handles non-Wave files and erorrs
+
+# The folder which contains the audio file (swallowing segment)
 input_folder = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/swallowing_segments"
 
+# 
 def aggregation_calculations(output):
     mean = np.mean(output, axis = 0)
     std = np.std(output, axis = 0)
     return np.concatenate([mean, std])
-
-
 
 # going through each wav file in the folder
 for file in os.listdir(input_folder):
@@ -29,8 +34,6 @@ for file in os.listdir(input_folder):
 
             agg_features = aggregation_calculations(output)
             
-
-
             # print(output)
             print(f"{file}: SSC feature frames = {output.shape[0]}")
             print(f"{file}: SSC features per frame = {output.shape[1]}")
