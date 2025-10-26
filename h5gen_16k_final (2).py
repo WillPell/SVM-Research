@@ -4,6 +4,12 @@ import scipy.io.wavfile as wf
 import pandas as pd
 import os
 
+# This code helps to read the participant audio files and swallow event labels from CSV
+# Convers various timestamp formats into sample indices relative to audio data
+# Creates binary label arrays marking where swallows occur in the audio
+# Saves raw audio and label data efficiently in an HDF5 file for downstream processing or machine learning
+
+
 rawSave = 1  # set to save raw data again
 
 def convertTimestamp(timestamp, Fs):
