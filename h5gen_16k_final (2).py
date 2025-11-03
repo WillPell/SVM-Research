@@ -4,27 +4,34 @@ import scipy.io.wavfile as wf
 import pandas as pd
 import os
 
-# This code helps to read the participant audio files and swallow event labels from CSV
-# Convers various timestamp formats into sample indices relative to audio data
-# Creates binary label arrays marking where swallows occur in the audio
-# Saves raw audio and label data efficiently in an HDF5 file for downstream processing or machine learning
-
-
-rawSave = 1  # set to save raw data again
+rawSave = 1  # Flag to control whether to save raw audio data again (1 = save, 0 = skip)
 
 def convertTimestamp(timestamp, Fs):
+    """
+    Convert a timestamp string or number to time in seconds and corresponding sample index.
+    Supports multiple timestamp formats:
+    - Numeric (float or int)
+    - "mm:ss.sss"
+    - "mm.ss.ms" (with two dots)
+    Also fixes common typos like ';' instead of ':'.
+    
+    Returns:
+        time_in_seconds (float): time value in seconds
+        sample_index (int): corresponding sample index in audio (based on sampling freq Fs)
+    """
     if isinstance(timestamp, float) or isinstance(timestamp, int):
+        # Timestamp is already a number
         time_in_seconds = float(timestamp)
     else:
-        # removing the extra literal string around the column names
+        # Clean string: remove extra quotes and whitespace
         timestamp = str(timestamp).strip().strip("'").strip('"')
 
-        # Fix common typo: replace ';' with ':' (typo)
+        # Fix common typo: replace ';' with ':'
         timestamp = timestamp.replace(';', ':')
-        
+
         try:
             if '.' in timestamp and timestamp.count('.') == 2 and ':' not in timestamp:
-                # Format mm.ss.ms (some recordings were done using this format)
+                # Format mm.ss.ms (e.g. "01.23.456")
                 parts = timestamp.split('.')
                 if len(parts) == 3:
                     minutes = float(parts[0])
@@ -34,7 +41,7 @@ def convertTimestamp(timestamp, Fs):
                 else:
                     raise ValueError
             elif ':' in timestamp:
-                # Format mm:ss.sss (some recordings were done using this format)
+                # Format mm:ss.sss (e.g. "01:23.456")
                 parts = timestamp.split(':')
                 if len(parts) == 2:
                     minutes = float(parts[0])
@@ -43,79 +50,96 @@ def convertTimestamp(timestamp, Fs):
                 else:
                     raise ValueError
             else:
-                # Just seconds as float string
+                # Just seconds as a string number
                 time_in_seconds = float(timestamp)
         except ValueError:
+            # Unexpected format: warn and default to 0 seconds
             print(f"Warning: Unexpected timestamp format '{timestamp}'. Treating as 0 seconds.")
             time_in_seconds = 0.0
 
-    # getting where the swallowing occur in the sample index
+    # Convert time in seconds to sample index based on sampling frequency Fs
     sample_index = int(round(time_in_seconds * Fs))
 
-    # returning time when it happens and the sample when it happens 
     return time_in_seconds, sample_index
 
 
 if __name__ == "__main__":
-    dataPath = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/mono_audio"
-    labelPath = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/cfe/study 2_clean_swallow sounds.csv"
+    # Paths to data and labels
+    dataPath = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/mono_audio1"
 
+    labelPath = "/Users/samtruong/Library/CloudStorage/OneDrive-GriffithUniversity/Desktop/3rd year/Stephen's Research/paed_vfss/vinod_edited_spreadsheet-VFSSdatset-22Aug2022.csv"
+
+    # Read CSV label file into pandas DataFrame
     labelcsv = pd.read_csv(labelPath)
-    labelcsv.columns = [col.strip().strip("'").strip('"') for col in labelcsv.columns]
-    print([f"'{col}'" for col in labelcsv.columns.tolist()])
 
+    # Clean column names: remove whitespace and quotes
+    labelcsv.columns = [col.strip().strip("'").strip('"') for col in labelcsv.columns]
+    print([f"'{col}'" for col in labelcsv.columns.tolist()])  # Print columns for verification
+
+    # Open an HDF5 file to save raw audio and labels
     with h5.File("labels.h5", "w") as v5:
+        # Iterate over each participant's row in the CSV
         for idx, row in labelcsv.iterrows():
-            p = row['Participant']  # e.g., "P9"
-            filename = f"{p}_mono.wav"
+            p = ''.join(filter(str.isdigit, str(row['Participant'])))  # extracts digits only, e.g. "9"
+            filename = f"MBS {p}_mono.wav"  # Expected audio filename
             filepath = os.path.join(dataPath, filename)
 
-            print("Reading ", filename)  # visualising in terminal
+            print("Reading ", filename)  # Log current file being processed
 
             try:
+                # Read audio file: Fs = sampling freq, x = audio samples
                 (Fs, x) = wf.read(filepath)
             except (FileNotFoundError, OSError) as e:
+                # Warn and skip if file not found or unreadable
                 print(f"Warning: Audio file not found or unreadable: {filepath}. Skipping participant {p}.")
-                continue  # For now as we have duplicates in the wav file
+                continue
 
-            Nx = len(x)  # total number of audio samples in the loaded audio file
+            Nx = len(x)  # Total number of samples in audio
             print("Number of samples: ", Nx)
 
             if rawSave == 1:
+                # Save raw audio data into HDF5 dataset under raw/{participant}_1
                 dset = v5.create_dataset(f"raw/{p}_1", (Nx,), dtype='int16', fletcher32=True)
                 if x.ndim > 1:
-                    dset[...] = x[:, 0]  # stereo: take first channel
+                    # Stereo audio: save only left channel
+                    dset[...] = x[:, 0]
                 else:
-                    dset[...] = x   # mono: save as is (getting the amplitude of each frame and store it)
+                    # Mono audio: save as is
+                    dset[...] = x
 
-            numSwallows = row['Total swallows']
+            numSwallows = row['Total swallows']  # Number of swallows annotated
             print("\tNumber of swallows = ", numSwallows)
 
+            # Initialize arrays to hold start/stop times and sample indices for swallows
             startTime = np.zeros(int(numSwallows), dtype=float)
             stopTime = np.zeros(int(numSwallows), dtype=float)
             startSample = np.zeros(int(numSwallows), dtype=int)
             stopSample = np.zeros(int(numSwallows), dtype=int)
 
+            # Initialize class label array for entire audio (0 = no swallow, 1 = swallow)
             classLabels = np.zeros(Nx)
 
+            # Process each swallow event for this participant
             for swallow in range(int(numSwallows)):
-                column1 = f"Swallow {swallow + 1} Start"
-                column2 = f"Swallow {swallow + 1} Stop"
+                column1 = f"Swallow Number {swallow + 1} Start"  # CSV column for start time
+                column2 = f"Swallow Number {swallow + 1} Stop"   # CSV column for stop time
 
-                startStamp = row[column1]
-                stopStamp = row[column2]
+                startStamp = row[column1]  # Get start timestamp string/value
+                stopStamp = row[column2]   # Get stop timestamp string/value
+
+                # Convert timestamps to seconds and sample indices
                 (startTime[swallow], startSample[swallow]) = convertTimestamp(startStamp, Fs)
-
-                # assigning the time and index of swallowing sound
                 (stopTime[swallow], stopSample[swallow]) = convertTimestamp(stopStamp, Fs)
 
+                # Mark samples between start and stop as swallow (1)
                 classLabels[startSample[swallow]:stopSample[swallow]] = 1
 
-            dset = v5.create_dataset(f"labels/{p}/start/times", data=startTime, fletcher32=True)
-            dset = v5.create_dataset(f"labels/{p}/stop/times", data=stopTime, fletcher32=True)
-            dset = v5.create_dataset(f"labels/{p}/start/samples", data=startSample, fletcher32=True)
-            dset = v5.create_dataset(f"labels/{p}/stop/samples", data=stopSample, fletcher32=True)
+            # Save swallow times and sample indices into HDF5 datasets under labels/{participant}/...
+            v5.create_dataset(f"labels/{p}/start/times", data=startTime, fletcher32=True)
+            v5.create_dataset(f"labels/{p}/stop/times", data=stopTime, fletcher32=True)
+            v5.create_dataset(f"labels/{p}/start/samples", data=startSample, fletcher32=True)
+            v5.create_dataset(f"labels/{p}/stop/samples", data=stopSample, fletcher32=True)
 
-            dset = v5.create_dataset(f"labels/{p}/class", data=classLabels, dtype="int8", fletcher32=True)
-
+            # Save the binary class label array (swallow presence over time)
+            v5.create_dataset(f"labels/{p}/class", data=classLabels, dtype="int8", fletcher32=True)
 
